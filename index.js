@@ -23,6 +23,7 @@ async function run() {
 
     const database = client.db('coffee-store');
     const coffeeStoreCollection = database.collection('coffees');
+    const orderCollection = database.collection('orders')
 
 
     // Coffees API
@@ -34,6 +35,8 @@ async function run() {
     // save the coffee into data base
     app.post('/add-coffees', async (req, res) => {
       const coffeeData = req.body;
+      const quantity = coffeeData.quantity;
+      coffeeData.quantity = parseInt(quantity)
       const result = await coffeeStoreCollection.insertOne(coffeeData)
       // console.log(result);
       res.status(201).send({ ...result, message: "data is coming" })
@@ -78,6 +81,44 @@ async function run() {
 
       await coffeeStoreCollection.updateOne(filter, updateDoc);
       res.send({ message: alreadyLiked ? "dislike successful" : "Like successful", liked: !alreadyLiked })
+    })
+
+
+    // post method for ordered
+    app.post('/place-order/:id', async (req, res) => {
+      const { id } = req.params;
+      const orderData = req.body;
+      const coffeeItem = await coffeeStoreCollection.findOne({ _id: new ObjectId(id) })
+      if (!coffeeItem || coffeeItem.quantity <= 0) {
+        return res.status(400).send({ message: "Out of stock or item not found." })
+      }
+      const result = await orderCollection.insertOne(orderData);
+      if (result.acknowledged) {
+        // update quantity from coffee collection
+        await coffeeStoreCollection.updateOne({ _id: new ObjectId(id) }, {
+          $inc: {
+            quantity: -1,
+          }
+        })
+      }
+      // console.log(result);
+      res.status(201).send(result)
+    })
+
+    // get all order by customer email
+    app.get('/my-orders/:email', async (req, res) => {
+      const email = req.params.email;
+      const filter = { customerEmail: email };
+      const allOrders = await orderCollection.find(filter).toArray();
+      for (const order of allOrders) {
+        const orderId = order.coffeeId;
+        const fullCoffeeData = await coffeeStoreCollection.findOne({ _id: new ObjectId(orderId) });
+        order.name = fullCoffeeData.name
+        order.photo = fullCoffeeData.photo
+        order.price = fullCoffeeData.price
+        order.quantity = fullCoffeeData.quantity
+      }
+      res.send(allOrders)
     })
 
     // Send a ping to confirm a successful connection
